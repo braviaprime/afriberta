@@ -33,11 +33,11 @@ client = InferenceClient(api_key=HF_TOKEN)
 
 # Categorized Research Test Suite
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "yor_Latn"),
-    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "hau_Latn"),
-    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "ibo_Latn"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "swh_Latn"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "amh_Ethi")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "Yorùbá"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "Hausa"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "Igbo"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "Swahili"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "Amharic")
 }
 
 # Sidebar Example Picker & Metadata
@@ -50,8 +50,8 @@ st.sidebar.divider()
 st.sidebar.header("📋 Evaluation Presets")
 selected_region = st.sidebar.selectbox("Select Language Family / Region:", list(examples.keys()))
 
-# Extract sentence and language code from preset
-default_sentence, source_lang_code = examples[selected_region]
+# Extract sentence and language name from preset
+default_sentence, source_lang_name = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
@@ -69,25 +69,27 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Stable Serverless Translation (No DNS/urllib errors)
-def translate_sentence(text, src_lang, tgt_lang):
-    try:
-        # Let the official SDK handle the modern route automatically
-        result = client.translation(
-            text,
-            model="facebook/nllb-200-distilled-600M",
-            src_lang=src_lang,
-            tgt_lang=tgt_lang
-        )
-        if hasattr(result, "translation_text"):
-            return result.translation_text
-        elif isinstance(result, dict) and "translation_text" in result:
-            return result["translation_text"]
-        elif isinstance(result, list) and len(result) > 0 and "translation_text" in result[0]:
-            return result[0]["translation_text"]
-        return str(result)
-    except Exception as e:
-        raise Exception(f"API Error: {str(e)}")
+# Helper function for FREE, Unbreakable Serverless Chat-Based Translation
+def translate_sentence(text, target_language):
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a professional multilingual African language translator. Translate the text provided by the user accurately into the target language. Output ONLY the direct translated text. Do not include quotes, notes, or introductions."
+        },
+        {
+            "role": "user",
+            "content": f"Translate this sentence into {target_language}: {text}"
+        }
+    ]
+    
+    # Uses the officially supported 'conversational' task on an unlimited free tier model
+    response = client.chat_completion(
+        messages=messages,
+        model="Qwen/Qwen2.5-1.5B-Instruct",
+        max_tokens=60,
+        temperature=0.2
+    )
+    return response.choices[0].message.content.strip().replace('"', '')
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
@@ -102,21 +104,16 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
-                    targets = {
-                        "English": "eng_Latn",
-                        "Yorùbá": "yor_Latn",
-                        "Hausa": "hau_Latn",
-                        "Igbo": "ibo_Latn"
-                    }
+                    targets = ["English", "Yorùbá", "Hausa", "Igbo"]
                     cols = st.columns(4)
                     
-                    for idx, (lang_name, tgt_code) in enumerate(targets.items()):
+                    for idx, lang_name in enumerate(targets):
                         with cols[idx]:
                             st.markdown(f"**{lang_name}**")
-                            if tgt_code == source_lang_code:
+                            if lang_name.lower() == source_lang_name.lower():
                                 st.info(readable_text)
                             else:
-                                translated_text = translate_sentence(readable_text, source_lang_code, tgt_code)
+                                translated_text = translate_sentence(readable_text, lang_name)
                                 st.success(translated_text)
                 except Exception as e:
                     st.error(f"Translation Error: {str(e)}")
