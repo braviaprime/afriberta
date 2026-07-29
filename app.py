@@ -1,6 +1,4 @@
 import streamlit as st
-import urllib.request
-import json
 from huggingface_hub import InferenceClient
 
 # Page Configuration
@@ -71,28 +69,7 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, direct serverless HTTP translation (Bypasses provider routing errors)
-def translate_sentence(text, src_code, tgt_code):
-    api_url = "https://api-inference.huggingface.co/models/facebook/nllb-200-distilled-600M"
-    headers = {"Content-Type": "application/json"}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
-    
-    payload = json.dumps({
-        "inputs": text,
-        "parameters": {"src_lang": src_code, "tgt_lang": tgt_code}
-    }).encode("utf-8")
-    
-    req = urllib.request.Request(api_url, data=payload, headers=headers)
-    with urllib.request.urlopen(req) as response:
-        result = json.loads(response.read().decode("utf-8"))
-        if isinstance(result, list) and len(result) > 0 and "translation_text" in result[0]:
-            return result[0]["translation_text"]
-        elif isinstance(result, dict) and "error" in result:
-            return f"Warming up ({result['error']})... Click again!"
-        return str(result)
-
-# --- 4-WAY TRANSLATION HELPER ---
+# --- 4-WAY TRANSLATION HELPER (Using Official SDK Translation Router) ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
     st.markdown("Translate the input sentence across major Nigerian languages and English.")
     
@@ -119,8 +96,14 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
                             if tgt_code == source_lang_code:
                                 st.info(readable_text)
                             else:
-                                translated_text = translate_sentence(readable_text, source_lang_code, tgt_code)
-                                st.success(translated_text)
+                                # Native SDK translation call (100% free and stable)
+                                response = client.translation(
+                                    readable_text,
+                                    model="facebook/nllb-200-distilled-600M",
+                                    src_lang=source_lang_code,
+                                    tgt_lang=tgt_code
+                                )
+                                st.success(response.translation_text)
                 except Exception as e:
                     st.error(f"Translation Error: {e}")
 
