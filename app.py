@@ -1,4 +1,5 @@
 import streamlit as st
+import requests
 from huggingface_hub import InferenceClient
 
 # Page Configuration
@@ -28,16 +29,16 @@ st.markdown("""
 # Securely grab the API Token from Streamlit Secrets
 HF_TOKEN = st.secrets.get("HF_TOKEN", None)
 
-# Initialize Hugging Face Client with authentication
+# Client exclusively for Mask-Filling (AfriBERTa & mBERT)
 client = InferenceClient(api_key=HF_TOKEN)
 
 # Categorized Research Test Suite
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask> gbogbo ọjọ́.", "Yorùbá"),
-    "Hausa (West Africa)": ("Yaro yana son <mask> ruwa.", "Hausa"),
-    "Igbo (West Africa)": ("Obi na-asa <mask> m mma.", "Igbo"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask> kitabu.", "Swahili"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask> ስጠኝ ።", "Amharic")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "yor_Latn"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "hau_Latn"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "ibo_Latn"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "swh_Latn"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "amh_Ethi")
 }
 
 # Sidebar Example Picker & Metadata
@@ -50,12 +51,12 @@ st.sidebar.divider()
 st.sidebar.header("📋 Evaluation Presets")
 selected_region = st.sidebar.selectbox("Select Language Family / Region:", list(examples.keys()))
 
-# Extract sentence and language name from preset
-default_sentence, source_lang_name = examples[selected_region]
+# Extract sentence and language code from preset
+default_sentence, source_lang_code = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
-    "Input Sentence (must contain `<mask>` for the missing word):", 
+    "Input Sentence (must contain `<mask >` for the missing word):", 
     value=default_sentence, 
     height=100
 )
@@ -63,31 +64,41 @@ input_text = st.text_area(
 # Helper function to scrub HTML styling and fix trailing spaces inside mask tokens
 def clean_input(text):
     return (
-        text.replace("<mask style=''>", "<mask>")
-            .replace("<mask  style=''>", "<mask>")
-            .replace("<mask >", "<mask>")
-            .replace("[MASK]", "<mask>")
+        text.replace("<mask style=''>", "<mask >")
+            .replace("<mask  style=''>", "<mask >")
+            .replace("<mask >", "<mask >")
+            .replace("[MASK]", "<mask >")
     )
 
-# Helper function for reliable translation using Serverless Chat API
-def translate_sentence(text, target_language):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert African language translator. Translate the given text accurately. Output ONLY the direct translation and nothing else. Do not add explanations or quotes."
-        },
-        {
-            "role": "user",
-            "content": f"Translate this sentence into {target_language}: {text}"
+# ---------------------------------------------------------------------
+# A BETTER APPROACH: Direct REST API for NLLB-200 Translation
+# Bypasses all third-party routers, providers, and chat task restrictions!
+# ---------------------------------------------------------------------
+def translate_sentence_direct(text, src_code, tgt_code):
+    url = "https://api-inference.huggingface.co/models/facebook/nllb-200-distilled-600M"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+    payload = {
+        "inputs": text,
+        "parameters": {
+            "src_lang": src_code,
+            "tgt_lang": tgt_code
         }
-    ]
-    response = client.chat_completion(
-        messages=messages,
-        model="Qwen/Qwen2.5-7B-Instruct",
-        max_tokens=100,
-        temperature=0.3
-    )
-    return response.choices[0].message.content.strip()
+    }
+    
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    
+    # Handle response cleanly without crashing
+    if response.status_code == 200:
+        data = response.json()
+        if isinstance(data, list) and len(data) > 0 and "translation_text" in data[0]:
+            return data[0]["translation_text"]
+        elif isinstance(data, dict) and "translation_text" in data:
+            return data["translation_text"]
+        return str(data)
+    elif response.status_code == 503:
+        return "⏳ Server warming up... Please click Translate again in 10 seconds!"
+    else:
+        raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
@@ -98,23 +109,28 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
         else:
             # Replace mask token with a blank line so it translates naturally
-            readable_text = clean_input(input_text).replace("<mask>", "___")
+            readable_text = clean_input(input_text).replace("<mask >", "___")
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
-                    targets = ["English", "Yorùbá", "Hausa", "Igbo"]
+                    targets = {
+                        "English": "eng_Latn",
+                        "Yorùbá": "yor_Latn",
+                        "Hausa": "hau_Latn",
+                        "Igbo": "ibo_Latn"
+                    }
                     cols = st.columns(4)
                     
-                    for idx, lang_name in enumerate(targets):
+                    for idx, (lang_name, tgt_code) in enumerate(targets.items()):
                         with cols[idx]:
                             st.markdown(f"**{lang_name}**")
-                            if lang_name.lower() == source_lang_name.lower():
+                            if tgt_code == source_lang_code:
                                 st.info(readable_text)
                             else:
-                                translated_text = translate_sentence(readable_text, lang_name)
+                                translated_text = translate_sentence_direct(readable_text, source_lang_code, tgt_code)
                                 st.success(translated_text)
                 except Exception as e:
-                    st.error(f"Translation Error: {e}")
+                    st.error(f"Translation Error: {str(e)}")
 
 st.divider()
 
@@ -122,14 +138,14 @@ st.divider()
 if st.button("Compare Model Understanding 🚀", type="primary"):
     standardized_text = clean_input(input_text)
     
-    if "<mask>" not in standardized_text:
-        st.error("Please include `<mask>` in your sentence to test predictions.")
+    if "<mask >" not in standardized_text:
+        st.error("Please include `<mask >` in your sentence to test predictions.")
     elif not HF_TOKEN:
         st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
     else:
         col1, col2 = st.columns(2)
         
-        # 1. AfriBERTa Predictions (Requires literal: <mask>)
+        # 1. AfriBERTa Predictions (Requires literal: <mask >)
         with col1:
             st.subheader("🟢 AfriBERTa (Specialized African Model)")
             with st.spinner("Analyzing with AfriBERTa..."):
@@ -140,14 +156,14 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
                         st.write(f"**Word:** `{res['token_str']}`")
                         st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
                 except Exception as e:
-                    st.error(f"AfriBERTa Error: {e}")
+                    st.error(f"AfriBERTa Error: {str(e)}")
 
         # 2. Generic Multilingual Baseline (Requires literal: [MASK])
         with col2:
             st.subheader("🔵 mBERT (Generic Multilingual Baseline)")
             with st.spinner("Analyzing with Multilingual BERT..."):
                 try:
-                    bert_text = standardized_text.replace("<mask>", "[MASK]")
+                    bert_text = standardized_text.replace("<mask >", "[MASK]")
                     
                     results = client.fill_mask(
                         bert_text, 
@@ -158,7 +174,7 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
                         st.write(f"**Word:** `{res['token_str']}`")
                         st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
                 except Exception as e:
-                    st.error(f"Baseline Error: {e}")
+                    st.error(f"Baseline Error: {str(e)}")
 
 # =====================================================================
 # ACADEMIC RESEARCH FOOTER
