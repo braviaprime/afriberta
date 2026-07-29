@@ -69,12 +69,12 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Supported Serverless Translation
+# Helper function for FREE, Universal Serverless Chat Translation
 def translate_sentence(text, target_language):
     messages = [
         {
             "role": "system",
-            "content": "You are a professional multilingual African language translator. Translate the text provided by the user accurately into the target language. Output ONLY the direct translated text. Do not include quotes, notes, or introductions."
+            "content": "You are an expert African language translator. Translate the user's text accurately into the target language. Output ONLY the direct translation without quotes, explanations, or notes."
         },
         {
             "role": "user",
@@ -82,10 +82,10 @@ def translate_sentence(text, target_language):
         }
     ]
     
-    # Uses Mistral-7B-Instruct-v0.3 which is actively supported on free tier chat routing
+    # Uses Llama-3.2-3B-Instruct which is universally supported on HF serverless chat completion
     response = client.chat_completion(
         messages=messages,
-        model="mistralai/Mistral-7B-Instruct-v0.3",
+        model="meta-llama/Llama-3.2-3B-Instruct",
         max_tokens=60,
         temperature=0.2
     )
