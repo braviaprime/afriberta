@@ -1,6 +1,4 @@
 import streamlit as st
-import urllib.request
-import json
 from huggingface_hub import InferenceClient
 
 # Page Configuration
@@ -71,40 +69,25 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Unbreakable Serverless Translation
+# Helper function for FREE, Stable Serverless Translation (No DNS/urllib errors)
 def translate_sentence(text, src_lang, tgt_lang):
-    api_url = "https://api-inference.huggingface.co/models/facebook/nllb-200-distilled-600M"
-    headers = {"Content-Type": "application/json"}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
-    
-    payload = json.dumps({
-        "inputs": text,
-        "parameters": {
-            "src_lang": src_lang,
-            "tgt_lang": tgt_lang
-        }
-    }).encode("utf-8")
-    
     try:
-        req = urllib.request.Request(api_url, data=payload, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            
-            # Safely parse list or dict responses from Hugging Face
-            if isinstance(result, list) and len(result) > 0 and "translation_text" in result[0]:
-                return result[0]["translation_text"]
-            elif isinstance(result, dict) and "error" in result:
-                return f"⏳ Server warming up: {result['error']}"
-            elif isinstance(result, dict) and "translation_text" in result:
-                return result["translation_text"]
-            else:
-                return str(result)
-    except urllib.error.HTTPError as e:
-        error_details = e.read().decode("utf-8", errors="ignore")
-        raise Exception(f"HTTP {e.code}: {error_details if error_details else e.reason}")
+        # Let the official SDK handle the modern route automatically
+        result = client.translation(
+            text,
+            model="facebook/nllb-200-distilled-600M",
+            src_lang=src_lang,
+            tgt_lang=tgt_lang
+        )
+        if hasattr(result, "translation_text"):
+            return result.translation_text
+        elif isinstance(result, dict) and "translation_text" in result:
+            return result["translation_text"]
+        elif isinstance(result, list) and len(result) > 0 and "translation_text" in result[0]:
+            return result[0]["translation_text"]
+        return str(result)
     except Exception as e:
-        raise e
+        raise Exception(f"API Error: {str(e)}")
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
