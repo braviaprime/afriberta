@@ -1,6 +1,5 @@
 import streamlit as st
-import urllib.request
-import json
+from huggingface_hub import InferenceClient
 
 # Page Configuration
 st.set_page_config(
@@ -16,20 +15,8 @@ st.markdown("""
 (`castorini/afriberta_large`) against generic multilingual baselines (`xlm-roberta-base`).
 """)
 
-# API Endpoints
-AFRIBERTA_URL = "https://api-inference.huggingface.co/models/castorini/afriberta_large"
-XLMR_URL = "https://api-inference.huggingface.co/models/xlm-roberta-base"
-
-def query_hf_api(api_url, text):
-    """Sends serverless request to Hugging Face API."""
-    payload = json.dumps({"inputs": text}).encode("utf-8")
-    req = urllib.request.Request(
-        api_url, 
-        data=payload, 
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req) as response:
-        return json.loads(response.read().decode("utf-8"))
+# Initialize the official Hugging Face Inference Client (No raw URLs needed!)
+client = InferenceClient()
 
 # Categorized Research Test Suite
 examples = {
@@ -65,15 +52,13 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
             st.subheader("🟢 AfriBERTa (Specialized African Model)")
             with st.spinner("Analyzing with AfriBERTa..."):
                 try:
-                    formatted_text = input_text.replace("<mask>", "<mask>")
-                    results = query_hf_api(AFRIBERTA_URL, formatted_text)
+                    formatted_text = input_text.replace("<mask style=''>", "<mask>")
+                    # Official Hub call for Fill-Mask
+                    results = client.fill_mask(formatted_text, model="castorini/afriberta_large")
                     
-                    if isinstance(results, dict) and "error" in results:
-                        st.warning(f"Model warming up... Click again in 10s: {results['error']}")
-                    else:
-                        for res in results[:5]:
-                            st.write(f"**Word:** `{res['token_str']}`")
-                            st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
+                    for res in results[:5]:
+                        st.write(f"**Word:** `{res['token_str']}`")
+                        st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
                 except Exception as e:
                     st.error(f"AfriBERTa Error: {e}")
 
@@ -82,14 +67,12 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
             st.subheader("🔵 XLM-RoBERTa (Generic Multilingual Baseline)")
             with st.spinner("Analyzing with XLM-RoBERTa..."):
                 try:
-                    formatted_text = input_text.replace("<mask>", "<mask>")
-                    results = query_hf_api(XLMR_URL, formatted_text)
+                    formatted_text = input_text.replace("<mask style=''>", "<mask>")
+                    # Official Hub call for Fill-Mask
+                    results = client.fill_mask(formatted_text, model="xlm-roberta-base")
                     
-                    if isinstance(results, dict) and "error" in results:
-                        st.warning(f"Model warming up... Click again in 10s: {results['error']}")
-                    else:
-                        for res in results[:5]:
-                            st.write(f"**Word:** `{res['token_str']}`")
-                            st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
+                    for res in results[:5]:
+                        st.write(f"**Word:** `{res['token_str']}`")
+                        st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
                 except Exception as e:
                     st.error(f"XLM-RoBERTa Error: {e}")
