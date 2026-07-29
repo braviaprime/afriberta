@@ -28,16 +28,19 @@ st.markdown("""
 # Securely grab the API Token from Streamlit Secrets
 HF_TOKEN = st.secrets.get("HF_TOKEN", None)
 
-# Initialize Hugging Face Client with authentication
-client = InferenceClient(api_key=HF_TOKEN)
+# ---------------------------------------------------------------------
+# CRITICAL FIX: Force 'provider="hf-inference"' so Hugging Face handles 
+# NLLB-200 & AfriBERTa natively without third-party routing errors!
+# ---------------------------------------------------------------------
+client = InferenceClient(provider="hf-inference", api_key=HF_TOKEN)
 
 # Categorized Research Test Suite
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "Yorùbá"),
-    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "Hausa"),
-    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "Igbo"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "Swahili"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "Amharic")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "yor_Latn"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "hau_Latn"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "ibo_Latn"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "swh_Latn"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "amh_Ethi")
 }
 
 # Sidebar Example Picker & Metadata
@@ -50,8 +53,8 @@ st.sidebar.divider()
 st.sidebar.header("📋 Evaluation Presets")
 selected_region = st.sidebar.selectbox("Select Language Family / Region:", list(examples.keys()))
 
-# Extract sentence and language name from preset
-default_sentence, source_lang_name = examples[selected_region]
+# Extract sentence and language code from preset
+default_sentence, source_lang_code = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
@@ -69,18 +72,21 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Provider-Proof Translation (Bypasses Third-Party Routers)
-def translate_sentence(text, target_language):
-    # Uses google/flan-t5-large natively hosted on Hugging Face's core free inference infrastructure
-    prompt = f"Translate this English sentence to {target_language}: {text}"
-    
-    response = client.text_generation(
-        prompt,
-        model="google/flan-t5-large",
-        max_new_tokens=60,
-        temperature=0.1
+# Helper function for FREE, Provider-Proof NLLB-200 Translation
+def translate_sentence(text, src_lang, tgt_lang):
+    result = client.translation(
+        text,
+        model="facebook/nllb-200-distilled-600M",
+        src_lang=src_lang,
+        tgt_lang=tgt_lang
     )
-    return response.strip().replace('"', '')
+    if hasattr(result, "translation_text"):
+        return result.translation_text
+    elif isinstance(result, dict) and "translation_text" in result:
+        return result["translation_text"]
+    elif isinstance(result, list) and len(result) > 0 and "translation_text" in result[0]:
+        return result[0]["translation_text"]
+    return str(result)
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
@@ -95,16 +101,21 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
-                    targets = ["English", "Yorùbá", "Hausa", "Igbo"]
+                    targets = {
+                        "English": "eng_Latn",
+                        "Yorùbá": "yor_Latn",
+                        "Hausa": "hau_Latn",
+                        "Igbo": "ibo_Latn"
+                    }
                     cols = st.columns(4)
                     
-                    for idx, lang_name in enumerate(targets):
+                    for idx, (lang_name, tgt_code) in enumerate(targets.items()):
                         with cols[idx]:
                             st.markdown(f"**{lang_name}**")
-                            if lang_name.lower() == source_lang_name.lower():
+                            if tgt_code == source_lang_code:
                                 st.info(readable_text)
                             else:
-                                translated_text = translate_sentence(readable_text, lang_name)
+                                translated_text = translate_sentence(readable_text, source_lang_code, tgt_code)
                                 st.success(translated_text)
                 except Exception as e:
                     st.error(f"Translation Error: {str(e)}")
