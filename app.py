@@ -33,11 +33,11 @@ client = InferenceClient(api_key=HF_TOKEN)
 
 # Categorized Research Test Suite
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask> gbogbo ọjọ́.", "Yorùbá"),
-    "Hausa (West Africa)": ("Yaro yana son <mask> ruwa.", "Hausa"),
-    "Igbo (West Africa)": ("Obi na-asa <mask> m mma.", "Igbo"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask> kitabu.", "Swahili"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask> ስጠኝ ።", "Amharic")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "Yorùbá"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "Hausa"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "Igbo"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "Swahili"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "Amharic")
 }
 
 # Sidebar Example Picker & Metadata
@@ -55,7 +55,7 @@ default_sentence, source_lang_name = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
-    "Input Sentence (must contain `<mask>` for the missing word):", 
+    "Input Sentence (must contain `<mask >` for the missing word):", 
     value=default_sentence, 
     height=100
 )
@@ -63,31 +63,24 @@ input_text = st.text_area(
 # Helper function to scrub HTML styling and fix trailing spaces inside mask tokens
 def clean_input(text):
     return (
-        text.replace("<mask style=''>", "<mask>")
-            .replace("<mask  style=''>", "<mask>")
-            .replace("<mask >", "<mask>")
-            .replace("[MASK]", "<mask>")
+        text.replace("<mask style=''>", "<mask >")
+            .replace("<mask  style=''>", "<mask >")
+            .replace("<mask >", "<mask >")
+            .replace("[MASK]", "<mask >")
     )
 
-# Helper function for reliable translation using Serverless Chat API
+# Helper function for FREE translation using native Serverless Inference
 def translate_sentence(text, target_language):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert African language translator. Translate the given text accurately. Output ONLY the direct translation and nothing else. Do not add explanations or quotes."
-        },
-        {
-            "role": "user",
-            "content": f"Translate this sentence into {target_language}: {text}"
-        }
-    ]
-    response = client.chat_completion(
-        messages=messages,
-        model="Qwen/Qwen2.5-7B-Instruct",
-        max_tokens=100,
-        temperature=0.3
+    prompt = f"Translate this sentence into {target_language}. Give ONLY the translated sentence:\n\n{text}\n\nTranslation:"
+    response = client.text_generation(
+        prompt,
+        model="google/gemma-2-2b-it",
+        max_new_tokens=60,
+        temperature=0.2,
+        do_sample=True
     )
-    return response.choices[0].message.content.strip()
+    # Clean up output
+    return response.strip().split("\n")[0]
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
@@ -98,7 +91,7 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
         else:
             # Replace mask token with a blank line so it translates naturally
-            readable_text = clean_input(input_text).replace("<mask>", "___")
+            readable_text = clean_input(input_text).replace("<mask >", "___")
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
@@ -122,14 +115,14 @@ st.divider()
 if st.button("Compare Model Understanding 🚀", type="primary"):
     standardized_text = clean_input(input_text)
     
-    if "<mask>" not in standardized_text:
-        st.error("Please include `<mask>` in your sentence to test predictions.")
+    if "<mask >" not in standardized_text:
+        st.error("Please include `<mask >` in your sentence to test predictions.")
     elif not HF_TOKEN:
         st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
     else:
         col1, col2 = st.columns(2)
         
-        # 1. AfriBERTa Predictions (Requires literal: <mask>)
+        # 1. AfriBERTa Predictions (Requires literal: <mask >)
         with col1:
             st.subheader("🟢 AfriBERTa (Specialized African Model)")
             with st.spinner("Analyzing with AfriBERTa..."):
@@ -147,7 +140,7 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
             st.subheader("🔵 mBERT (Generic Multilingual Baseline)")
             with st.spinner("Analyzing with Multilingual BERT..."):
                 try:
-                    bert_text = standardized_text.replace("<mask>", "[MASK]")
+                    bert_text = standardized_text.replace("<mask >", "[MASK]")
                     
                     results = client.fill_mask(
                         bert_text, 
