@@ -21,13 +21,13 @@ HF_TOKEN = st.secrets.get("HF_TOKEN", None)
 # Initialize Hugging Face Client with authentication
 client = InferenceClient(api_key=HF_TOKEN)
 
-# Categorized Research Test Suite
+# Categorized Research Test Suite (Clean <mask > tokens only)
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask style=''> gbogbo ọjọ́.", "yor_Latn"),
-    "Hausa (West Africa)": ("Yaro yana son <mask style=''> ruwa.", "hau_Latn"),
-    "Igbo (West Africa)": ("Obi na-asa <mask style=''> m mma.", "ibo_Latn"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask style=''> kitabu.", "swh_Latn"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask style=''> ስጠኝ ።", "amh_Ethi")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "yor_Latn"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "hau_Latn"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "ibo_Latn"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "swh_Latn"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "amh_Ethi")
 }
 
 # Sidebar Example Picker
@@ -39,12 +39,21 @@ default_sentence, source_lang_code = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
-    "Input Sentence (must contain `<mask style=''>` for the missing word):", 
+    "Input Sentence (must contain `<mask >` for the missing word):", 
     value=default_sentence, 
     height=100
 )
 
-# --- NEW FEATURE: 4-WAY TRANSLATION HELPER ---
+# Helper function to scrub any accidental HTML tags pasted into mask tokens
+def clean_input(text):
+    return (
+        text.replace("<mask style=''>", "<mask >")
+            .replace("<mask  style=''>", "<mask >")
+            .replace("[MASK]", "<mask >")
+            .replace("<mask >", "<mask >")
+    )
+
+# --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
     st.markdown("Use Meta's `NLLB-200` to translate the input sentence across major Nigerian languages.")
     
@@ -53,15 +62,10 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
         else:
             # Clean out mask tokens so the translation reads naturally
-            clean_text = (
-                input_text.replace("<mask style=''>", "___")
-                          .replace("<mask style=''>", "___")
-                          .replace("[MASK]", "___")
-            )
+            readable_text = clean_input(input_text).replace("<mask >", "___")
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
-                    # Target language codes for NLLB-200
                     targets = {
                         "🇬🇧 English": "eng_Latn",
                         "🟢 Yorùbá": "yor_Latn",
@@ -69,19 +73,16 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
                         "🟡 Igbo": "ibo_Latn"
                     }
                     
-                    # Create 4 columns to display translations side-by-side
                     cols = st.columns(4)
                     
                     for idx, (lang_name, tgt_code) in enumerate(targets.items()):
                         with cols[idx]:
                             st.markdown(f"**{lang_name}**")
                             if tgt_code == source_lang_code:
-                                # If it's already the source language, display original
-                                st.info(clean_text)
+                                st.info(readable_text)
                             else:
-                                # Query NLLB-200 translation model
                                 translation = client.translation(
-                                    clean_text,
+                                    readable_text,
                                     model="facebook/nllb-200-distilled-600M",
                                     src_lang=source_lang_code,
                                     tgt_lang=tgt_code
@@ -92,29 +93,23 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
 
 st.divider()
 
-# --- EXISTING BENCHMARKING ENGINE ---
+# --- BENCHMARKING ENGINE ---
 if st.button("Compare Model Understanding 🚀", type="primary"):
-    has_mask = any(token in input_text for token in ["<mask style=''>", "<mask style=''>", "[MASK]"])
+    standardized_text = clean_input(input_text)
     
-    if not has_mask:
-        st.error("Please include `<mask style=''>` in your sentence to test predictions.")
+    if "<mask >" not in standardized_text:
+        st.error("Please include `<mask >` in your sentence to test predictions.")
     elif not HF_TOKEN:
         st.error("API Token missing! Please add `HF_TOKEN` inside your Streamlit App Secrets.")
     else:
         col1, col2 = st.columns(2)
         
-        # 1. AfriBERTa Predictions (Requires: <mask style=''>)
+        # 1. AfriBERTa Predictions (Requires: <mask >)
         with col1:
             st.subheader("🟢 AfriBERTa (Specialized African Model)")
             with st.spinner("Analyzing with AfriBERTa..."):
                 try:
-                    afri_text = (
-                        input_text.replace("<mask style=''>", "<mask style=''>")
-                                  .replace("[MASK]", "<mask style=''>")
-                                  .replace("<mask style=''>", "<mask style=''>")
-                    )
-                    
-                    results = client.fill_mask(afri_text, model="castorini/afriberta_large")
+                    results = client.fill_mask(standardized_text, model="castorini/afriberta_large")
                     
                     for res in results[:5]:
                         st.write(f"**Word:** `{res['token_str']}`")
@@ -127,11 +122,7 @@ if st.button("Compare Model Understanding 🚀", type="primary"):
             st.subheader("🔵 mBERT (Generic Multilingual Baseline)")
             with st.spinner("Analyzing with Multilingual BERT..."):
                 try:
-                    bert_text = (
-                        input_text.replace("<mask style=''>", "[MASK]")
-                                  .replace("<mask style=''>", "[MASK]")
-                                  .replace("<mask style=''>", "[MASK]")
-                    )
+                    bert_text = standardized_text.replace("<mask >", "[MASK]")
                     
                     results = client.fill_mask(
                         bert_text, 
