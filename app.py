@@ -69,27 +69,18 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Universal Serverless Chat Translation
+# Helper function for FREE, Provider-Proof Translation (Bypasses Third-Party Routers)
 def translate_sentence(text, target_language):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert African language translator. Translate the user's text accurately into the target language. Output ONLY the direct translation without quotes, explanations, or notes."
-        },
-        {
-            "role": "user",
-            "content": f"Translate this sentence into {target_language}: {text}"
-        }
-    ]
+    # Uses google/flan-t5-large natively hosted on Hugging Face's core free inference infrastructure
+    prompt = f"Translate this English sentence to {target_language}: {text}"
     
-    # Uses Llama-3.2-3B-Instruct which is universally supported on HF serverless chat completion
-    response = client.chat_completion(
-        messages=messages,
-        model="meta-llama/Llama-3.2-3B-Instruct",
-        max_tokens=60,
-        temperature=0.2
+    response = client.text_generation(
+        prompt,
+        model="google/flan-t5-large",
+        max_new_tokens=60,
+        temperature=0.1
     )
-    return response.choices[0].message.content.strip().replace('"', '')
+    return response.strip().replace('"', '')
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
