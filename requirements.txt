@@ -1,7 +1,2 @@
 streamlit
-transformers
-torch
-torchvision
-sentencepiece
-gradio
 huggingface_hub
