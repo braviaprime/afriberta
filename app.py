@@ -31,13 +31,13 @@ HF_TOKEN = st.secrets.get("HF_TOKEN", None)
 # Initialize Hugging Face Client with authentication
 client = InferenceClient(api_key=HF_TOKEN)
 
-# Categorized Research Test Suite (Using clean <mask > tokens)
+# Categorized Research Test Suite
 examples = {
-    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "Yorùbá"),
-    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "Hausa"),
-    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "Igbo"),
-    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "Swahili"),
-    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "Amharic")
+    "Yorùbá (West Africa)": ("Mo fẹ́ràn lati kà <mask > gbogbo ọjọ́.", "yor_Latn"),
+    "Hausa (West Africa)": ("Yaro yana son <mask > ruwa.", "hau_Latn"),
+    "Igbo (West Africa)": ("Obi na-asa <mask > m mma.", "ibo_Latn"),
+    "Swahili (East Africa)": ("Mtoto anapenda <mask > kitabu.", "swh_Latn"),
+    "Amharic (Horn of Africa)": ("እባክዎን <mask > ስጠኝ ።", "amh_Ethi")
 }
 
 # Sidebar Example Picker & Metadata
@@ -50,8 +50,8 @@ st.sidebar.divider()
 st.sidebar.header("📋 Evaluation Presets")
 selected_region = st.sidebar.selectbox("Select Language Family / Region:", list(examples.keys()))
 
-# Extract sentence and language name from preset
-default_sentence, source_lang_name = examples[selected_region]
+# Extract sentence and language code from preset
+default_sentence, source_lang_code = examples[selected_region]
 
 # Input text box
 input_text = st.text_area(
@@ -69,19 +69,21 @@ def clean_input(text):
             .replace("[MASK]", "<mask >")
     )
 
-# Helper function for FREE, Native Serverless Translation (No Quotas, No DNS Errors)
-def translate_sentence(text, target_language):
-    # We use a fast, natively supported instruction model on Hugging Face's free tier
-    prompt = f"Translate the following sentence into {target_language}. Provide ONLY the translated sentence without any explanation or introductory text:\n\n{text}"
-    
-    response = client.text_generation(
-        prompt,
-        model="Qwen/Qwen2.5-1.5B-Instruct",
-        max_new_tokens=60,
-        temperature=0.1
+# Helper function for FREE, Native Serverless Translation (No third-party provider errors)
+def translate_sentence(text, src_lang, tgt_lang):
+    # Uses Meta's NLLB-200 natively supported on HF free tier
+    result = client.translation(
+        text,
+        model="facebook/nllb-200-distilled-600M",
+        src_lang=src_lang,
+        tgt_lang=tgt_lang
     )
-    # Return cleanly formatted translated string
-    return response.strip().split("\n")[0].replace('"', '')
+    # Handle response whether returned as an object or dictionary
+    if hasattr(result, "translation_text"):
+        return result.translation_text
+    elif isinstance(result, dict) and "translation_text" in result:
+        return result["translation_text"]
+    return str(result)
 
 # --- 4-WAY TRANSLATION HELPER ---
 with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Igbo)"):
@@ -96,17 +98,21 @@ with st.expander("🌐 Translate Sentence Meanings (English, Yorùbá, Hausa, Ig
             
             with st.spinner("Translating across English, Yorùbá, Hausa, and Igbo..."):
                 try:
-                    targets = ["English", "Yorùbá", "Hausa", "Igbo"]
+                    targets = {
+                        "English": "eng_Latn",
+                        "Yorùbá": "yor_Latn",
+                        "Hausa": "hau_Latn",
+                        "Igbo": "ibo_Latn"
+                    }
                     cols = st.columns(4)
                     
-                    for idx, lang_name in enumerate(targets):
+                    for idx, (lang_name, tgt_code) in enumerate(targets.items()):
                         with cols[idx]:
                             st.markdown(f"**{lang_name}**")
-                            if lang_name.lower() == source_lang_name.lower():
+                            if tgt_code == source_lang_code:
                                 st.info(readable_text)
                             else:
-                                # Native Serverless Call that won't trigger provider/DNS errors
-                                translated_text = translate_sentence(readable_text, lang_name)
+                                translated_text = translate_sentence(readable_text, source_lang_code, tgt_code)
                                 st.success(translated_text)
                 except Exception as e:
                     st.error(f"Translation Error: {str(e)}")
