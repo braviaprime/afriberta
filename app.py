@@ -1,13 +1,27 @@
-import gradio as gr
+import streamlit as st
 import urllib.request
 import json
 
-# Endpoints for comparison
+# Page Configuration
+st.set_page_config(
+    page_title="African Language LLM Benchmarking", 
+    page_icon="🌍", 
+    layout="wide"
+)
+
+# Header & Research Description
+st.title("🌍 African Multilingual LLM Benchmarking Suite")
+st.markdown("""
+**Undergraduate Research Project Showcase:** Empirical evaluation of specialized African language models 
+(`castorini/afriberta_large`) against generic multilingual baselines (`xlm-roberta-base`).
+""")
+
+# API Endpoints
 AFRIBERTA_URL = "https://api-inference.huggingface.co/models/castorini/afriberta_large"
 XLMR_URL = "https://api-inference.huggingface.co/models/xlm-roberta-base"
 
 def query_hf_api(api_url, text):
-    """Helper function to send HTTP requests to Hugging Face APIs."""
+    """Sends serverless request to Hugging Face API."""
     payload = json.dumps({"inputs": text}).encode("utf-8")
     req = urllib.request.Request(
         api_url, 
@@ -17,78 +31,65 @@ def query_hf_api(api_url, text):
     with urllib.request.urlopen(req) as response:
         return json.loads(response.read().decode("utf-8"))
 
-def compare_models(text):
-    if "<mask>" not in text and "<mask>" not in text:
-        return (
-            {"Error: Please include '<mask>' or '<mask>' in your sentence.": 1.0},
-            {"Error: Please include '<mask>' or '<mask>' in your sentence.": 1.0}
-        )
-    
-    # 1. Query AfriBERTa
-    try:
-        # Standardize mask token for AfriBERTa (<mask>)
-        afri_text = text.replace("<mask>", "<mask>")
-        res_afri = query_hf_api(AFRIBERTA_URL, afri_text)
-        
-        if isinstance(res_afri, dict) and "error" in res_afri:
-            afri_out = {f"Model Loading... Retry in 10s: {res_afri['error']}": 1.0}
-        else:
-            afri_out = {res["token_str"]: res["score"] for res in res_afri}
-    except Exception as e:
-        afri_out = {f"AfriBERTa Error: {str(e)}": 1.0}
-
-    # 2. Query XLM-RoBERTa (Baseline)
-    try:
-        # Standardize mask token for XLM-R (<mask>)
-        xlm_text = text.replace("<mask>", "<mask>")
-        res_xlm = query_hf_api(XLMR_URL, xlm_text)
-        
-        if isinstance(res_xlm, dict) and "error" in res_xlm:
-            xlm_out = {f"Model Loading... Retry in 10s: {res_xlm['error']}": 1.0}
-        else:
-            xlm_out = {res["token_str"]: res["score"] for res in res_xlm}
-    except Exception as e:
-        xlm_out = {f"XLMR Error: {str(e)}": 1.0}
-
-    return afri_out, xlm_out
-
 # Categorized Research Test Suite
-examples = [
-    ["Yorùbá (West Africa)", "Mo fẹ́ràn lati kà <mask> gbogbo ọjọ́."],
-    ["Hausa (West Africa)", "Yaro yana son <mask> ruwa."],
-    ["Igbo (West Africa)", "Obi na-asa <mask style=''> m mma."],
-    ["Swahili (East Africa)", "Mtoto anapenda <mask style=''> kitabu."],
-    ["Amharic (Horn of Africa)", "እባክዎን <mask style=''> ስጠኝ ።"]
-]
+examples = {
+    "Yorùbá (West Africa)": "Mo fẹ́ràn lati kà <mask> gbogbo ọjọ́.",
+    "Hausa (West Africa)": "Yaro yana son <mask> ruwa.",
+    "Igbo (West Africa)": "Obi na-asa <mask> m mma.",
+    "Swahili (East Africa)": "Mtoto anapenda <mask> kitabu.",
+    "Amharic (Horn of Africa)": "እባክዎን <mask> ስጠኝ ።"
+}
 
-# Build Comparative UI
-with gr.Blocks(theme=gr.themes.Soft()) as app:
-    gr.Markdown("# 🌍 African Language LLM Benchmarking Suite")
-    gr.Markdown(
-        "**Undergraduate Research Project:** Empirical evaluation of "
-        "`castorini/afriberta_large` against generic multilingual baselines (`xlm-roberta-base`)."
-    )
-    
-    with gr.Row():
-        input_text = gr.Textbox(
-            label="Input African Language Sentence (use <mask style=''> for missing word)",
-            placeholder="e.g., Mo fẹ́ràn lati kà <mask style=''> gbogbo ọjọ́.",
-            lines=2
-        )
-    
-    submit_btn = gr.Button("Compare Model Understanding", variant="primary")
-    
-    with gr.Row():
-        output_afri = gr.Label(label="AfriBERTa (Specialized African Model)", num_top_classes=5)
-        output_xlm = gr.Label(label="XLM-RoBERTa (Generic Multilingual Baseline)", num_top_classes=5)
+# Sidebar Example Picker
+st.sidebar.header("📋 Research Evaluation Presets")
+selected_region = st.sidebar.selectbox("Select Language Family / Region:", list(examples.keys()))
 
-    submit_btn.click(fn=compare_models, inputs=input_text, outputs=[output_afri, output_xlm])
-    
-    gr.Examples(
-        examples=examples,
-        inputs=[gr.Textbox(label="Language Region", visible=False), input_text],
-        label="Preset Evaluation Sentences across African Language Families"
-    )
+# Input text box
+default_sentence = examples[selected_region]
+input_text = st.text_area(
+    "Input Sentence (must contain `<mask>` for the missing word):", 
+    value=default_sentence, 
+    height=100
+)
 
-if __name__ == "__main__":
-    app.launch()
+# Benchmark Button
+if st.button("Compare Model Understanding 🚀", type="primary"):
+    if "<mask>" not in input_text and "<mask>" not in input_text:
+        st.error("Please include `<mask>` in your sentence to test predictions.")
+    else:
+        # Create Side-by-Side Comparison Columns
+        col1, col2 = st.columns(2)
+        
+        # 1. AfriBERTa Predictions
+        with col1:
+            st.subheader("🟢 AfriBERTa (Specialized African Model)")
+            with st.spinner("Analyzing with AfriBERTa..."):
+                try:
+                    formatted_text = input_text.replace("<mask>", "<mask>")
+                    results = query_hf_api(AFRIBERTA_URL, formatted_text)
+                    
+                    if isinstance(results, dict) and "error" in results:
+                        st.warning(f"Model warming up... Click again in 10s: {results['error']}")
+                    else:
+                        for res in results[:5]:
+                            st.write(f"**Word:** `{res['token_str']}`")
+                            st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
+                except Exception as e:
+                    st.error(f"AfriBERTa Error: {e}")
+
+        # 2. XLM-RoBERTa Predictions
+        with col2:
+            st.subheader("🔵 XLM-RoBERTa (Generic Multilingual Baseline)")
+            with st.spinner("Analyzing with XLM-RoBERTa..."):
+                try:
+                    formatted_text = input_text.replace("<mask>", "<mask>")
+                    results = query_hf_api(XLMR_URL, formatted_text)
+                    
+                    if isinstance(results, dict) and "error" in results:
+                        st.warning(f"Model warming up... Click again in 10s: {results['error']}")
+                    else:
+                        for res in results[:5]:
+                            st.write(f"**Word:** `{res['token_str']}`")
+                            st.progress(float(res["score"]), text=f"Confidence: {res['score']:.1%}")
+                except Exception as e:
+                    st.error(f"XLM-RoBERTa Error: {e}")
